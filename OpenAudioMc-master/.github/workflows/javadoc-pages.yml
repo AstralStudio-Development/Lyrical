@@ -1,0 +1,64 @@
+name: Deploy Javadoc
+
+on:
+  push:
+    branches:
+      - master
+      - main
+      - development
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Get commit author
+        id: get-author
+        run: |
+          echo "name=$(git log -1 --pretty=format:'%an')" >> $GITHUB_OUTPUT
+          echo "email=$(git log -1 --pretty=format:'%ae')" >> $GITHUB_OUTPUT
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v3
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: 'gradle'
+
+      - name: Generate Javadoc (API module)
+        run: ./gradlew :OpenAudioMc:API:javadoc --no-daemon
+
+      - name: Checkout javadoc branch
+        uses: actions/checkout@v3
+        with:
+          ref: javadoc
+          path: javadoc-branch
+          clean: true
+
+      - name: Clear existing javadoc
+        run: |
+          cd javadoc-branch
+          git rm -rf javadoc || true
+          mkdir -p javadoc
+
+      - name: Copy new javadoc
+        run: |
+          cp -r OpenAudioMc/API/build/docs/javadoc/* javadoc-branch/javadoc/
+
+      - name: Commit and push javadoc
+        run: |
+          cd javadoc-branch
+          git config --local user.email "${{ steps.get-author.outputs.email }}"
+          git config --local user.name "${{ steps.get-author.outputs.name }}"
+          git add javadoc
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          git commit -m "Update Javadoc from ${{ github.sha }}"
+          git push origin javadoc

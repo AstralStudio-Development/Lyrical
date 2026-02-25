@@ -1,0 +1,254 @@
+package com.craftmend.openaudiomc.spigot.modules.speakers;
+
+import com.craftmend.openaudiomc.OpenAudioMc;
+import com.craftmend.openaudiomc.api.internal.AbstractSpeakerNbtUtil;
+import com.craftmend.openaudiomc.api.internal.speaker.ModernSpeakerAdapter;
+import com.craftmend.openaudiomc.api.internal.speakers.LegacySpeakerAdapter;
+import com.craftmend.openaudiomc.api.speakers.Loc;
+import com.craftmend.openaudiomc.generic.database.DatabaseService;
+import com.craftmend.openaudiomc.generic.logging.OpenAudioLogger;
+import com.craftmend.openaudiomc.generic.media.MediaService;
+import com.craftmend.openaudiomc.generic.networking.interfaces.NetworkingService;
+import com.craftmend.openaudiomc.generic.networking.packets.client.speakers.PacketClientUpdateSpeakerPosition;
+import com.craftmend.openaudiomc.generic.networking.payloads.client.speakers.ClientSpeakerPositionUpdatePayload;
+import com.craftmend.openaudiomc.generic.service.Inject;
+import com.craftmend.openaudiomc.generic.service.Service;
+import com.craftmend.openaudiomc.generic.storage.enums.StorageKey;
+import com.craftmend.openaudiomc.generic.utils.ClassMocker;
+import com.craftmend.openaudiomc.spigot.modules.players.SpigotPlayerService;
+import com.craftmend.openaudiomc.spigot.modules.players.objects.SpigotConnection;
+import com.craftmend.openaudiomc.api.speakers.ExtraSpeakerOptions;
+import com.craftmend.openaudiomc.api.speakers.SpeakerType;
+import com.craftmend.openaudiomc.spigot.OpenAudioMcSpigot;
+import com.craftmend.openaudiomc.spigot.modules.version.MinecraftVersion;
+import com.craftmend.openaudiomc.spigot.services.world.interfaces.IRayTracer;
+import com.craftmend.openaudiomc.spigot.modules.speakers.listeners.SpeakerSelectListener;
+import com.craftmend.openaudiomc.spigot.modules.speakers.objects.*;
+import com.craftmend.openaudiomc.spigot.modules.speakers.tasks.SpeakerGarbageCollection;
+import com.craftmend.openaudiomc.spigot.services.world.tracing.DummyTracer;
+import com.craftmend.openaudiomc.spigot.services.server.ServerService;
+import com.craftmend.openaudiomc.spigot.services.server.enums.ServerVersion;
+import com.craftmend.openaudiomc.spigot.modules.speakers.listeners.SpeakerCreateListener;
+import com.craftmend.openaudiomc.spigot.modules.speakers.listeners.SpeakerDestroyListener;
+
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import org.bukkit.*;
+import org.bukkit.entity.Player;
+
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+
+import static com.craftmend.openaudiomc.generic.storage.enums.StorageKey.SETTINGS_SPEAKER_SKIN_NAME;
+import static com.craftmend.openaudiomc.generic.storage.enums.StorageKey.SETTINGS_SPEAKER_SKIN_TEXTURE;
+
+@NoArgsConstructor
+public class SpeakerService extends Service {
+
+    @Inject
+    private OpenAudioMcSpigot openAudioMcSpigot;
+
+    @Inject
+    private DatabaseService databaseService;
+
+    @Getter private SpeakerCollector collector;
+
+    public static final SpeakerType DEFAULT_SPEAKER_TYPE = SpeakerType.SPEAKER_3D;
+    @Getter private final Map<MappedLocation, Speaker> speakerMap = new ConcurrentHashMap<>();
+    private final Map<String, SpeakerMedia> speakerMediaMap = new ConcurrentHashMap<>();
+    @Getter private Material playerSkullItem;
+    @Getter private Material playerSkullBlock;
+    @Getter private ServerVersion version;
+    private final IRayTracer estimatedRayTracer = new DummyTracer();
+
+    @Getter
+    private AbstractSpeakerNbtUtil speakerNbtUtil;
+
+    @Override
+    public void onEnable() {
+        openAudioMcSpigot.registerEvents(
+                new SpeakerSelectListener(this),
+                new SpeakerCreateListener(openAudioMcSpigot, this),
+                new SpeakerDestroyListener(OpenAudioMc.getInstance(), this)
+        );
+
+        collector = new SpeakerCollector(this);
+
+        initializeVersion();
+
+        // load all apeakers
+        for (Speaker speaker : databaseService.getRepository(Speaker.class).values()) {
+            speaker.fixEnumSet(); // due to gson type guessing in storm
+            registerSpeaker(speaker);
+        }
+
+        // setup garbage system
+        new SpeakerGarbageCollection(this);
+
+        // reset with new addon
+        OpenAudioMc.getService(MediaService.class).getResetTriggers().add(() -> {
+            speakerMediaMap.clear();
+        });
+
+        // initialize speaker UTIL
+        if (MinecraftVersion.getCurrent().isAtLeast(MinecraftVersion.V_1_21_10)) {
+            // USE MODERN
+            OpenAudioLogger.info("Using modern speaker NBT util");
+            speakerNbtUtil = new ModernSpeakerAdapter(
+                    SETTINGS_SPEAKER_SKIN_NAME.getString(),
+                    SETTINGS_SPEAKER_SKIN_TEXTURE.getString(),
+                    UUID.fromString(StorageKey.SETTINGS_SPEAKER_SKIN_UUID.getString()),
+                    playerSkullItem
+            );
+        } else {
+            // USE LEGACY
+            UUID speakerUUID = UUID.fromString(StorageKey.SETTINGS_SPEAKER_SKIN_UUID.getString());
+            String speakerSkinPlayerName = SETTINGS_SPEAKER_SKIN_NAME.getString();
+            speakerNbtUtil = new LegacySpeakerAdapter(
+                    speakerSkinPlayerName,
+                    SETTINGS_SPEAKER_SKIN_TEXTURE.getString(),
+                    speakerUUID,
+                    playerSkullItem,
+                    version == ServerVersion.MODERN,
+                    new ClassMocker<OfflinePlayer>(OfflinePlayer.class)
+                            .addReturnValue("getUniqueId", speakerUUID)
+                            .addReturnValue("getName", speakerSkinPlayerName)
+                            .createProxy()
+            );
+        }
+
+        // tick redstone speakers
+        if (StorageKey.SETTINGS_SPEAKER_REDSTONE_TICK_ENABLED.getBoolean()) {
+            int interval = StorageKey.SETTINGS_SPEAKER_REDSTONE_TICK_INTERVAL.getInt();
+
+            OpenAudioLogger.info("Starting redstone speaker tick task with interval " + interval + " ticks");
+
+            Bukkit.getScheduler().scheduleAsyncRepeatingTask(OpenAudioMcSpigot.getInstance(), () -> {
+                for (Speaker speaker : speakerMap.values()) {
+                    // does this speaker have a redstone trigger?
+                    if (!ExtraSpeakerOptions.REQUIRES_REDSTONE.isEnabledFor(speaker)) return;
+
+                    // is the speakers chunk loaded?
+                    World world = Bukkit.getWorld(speaker.getLocation().getWorld());
+                    if (world == null) continue;
+                    if (!world.isChunkLoaded(speaker.getLocation().getX() >> 4, speaker.getLocation().getZ() >> 4)) continue;
+
+                    // is the speaker powered?
+                    boolean poweredNow = world.getBlockAt(speaker.getLocation().getX(), speaker.getLocation().getY(), speaker.getLocation().getZ()).isBlockPowered();
+                    boolean poweredBefore = speaker.isRedstonePowered();
+
+                    // did it change?
+                    if (poweredNow != poweredBefore) {
+                        // update the speaker
+                        speaker.setRedstonePowered(poweredNow);
+                        if (ExtraSpeakerOptions.RESET_PLAYTHROUGH_ON_REDSTONE_LOSS.isEnabledFor(speaker)) {
+                            if (!poweredNow) {
+                                speaker.setLastRedstoneToggle(null);
+                            }
+                        }
+
+                        // find nearby players
+                        for (Player player : world.getPlayers()) {
+                            if (player.getLocation().distance(speaker.getLocation().toBukkit()) > speaker.getRadius()) {
+                                continue;
+                            }
+
+                            SpigotConnection spigotConnection = OpenAudioMc.getService(SpigotPlayerService.class).getClient(player);
+                            if (spigotConnection != null) {
+                                spigotConnection.getSpeakerHandler().tick();
+                            }
+                        }
+                    }
+                }
+            }, interval, interval);
+        } else {
+            OpenAudioLogger.info("Redstone speaker tick task is disabled");
+        }
+    }
+
+    public void updateSpeakerPosition(Speaker speaker, MappedLocation newLocation) {
+        // find listeners to this speaker, so we can update them
+        List<SpigotConnection> listeners = new ArrayList<>();
+        for (SpigotConnection client : OpenAudioMc.getService(SpigotPlayerService.class).getClients()) {
+            if (client.getSpeakerHandler().isTrackingSpeaker(speaker)) {
+                listeners.add(client);
+            }
+        }
+
+        // unregister the old location
+        unlistSpeaker(speaker.getLocation());
+        // update the location
+        speaker.setLocation(newLocation);
+        // reregister the speaker
+        registerSpeaker(speaker);
+
+        // force update for all listeners
+        for (SpigotConnection listener : listeners) {
+            listener.getSpeakerHandler().tick();
+            listener.getClientConnection().sendPacket(
+                    new PacketClientUpdateSpeakerPosition(new ClientSpeakerPositionUpdatePayload(
+                            newLocation.getX(),
+                            newLocation.getY(),
+                            newLocation.getZ(),
+                            speaker.getSpeakerId().toString()
+                    ))
+            );
+        }
+    }
+
+    public IRayTracer getRayTracer() {
+        // provide a default ray tracer, just use the simple one for now
+        return estimatedRayTracer;
+    }
+
+    private void initializeVersion() {
+        version = OpenAudioMc.getService(ServerService.class).getVersion();
+
+        if (version == ServerVersion.MODERN) {
+            OpenAudioLogger.info("Enabling the 1.13 speaker system");
+            playerSkullItem = Material.PLAYER_HEAD;
+            playerSkullBlock = Material.PLAYER_HEAD;
+        } else {
+            OpenAudioLogger.info("Enabling the 1.12 speaker system");
+            try {
+                OpenAudioLogger.info("Hooking speakers attempt 1..");
+                playerSkullItem = Material.valueOf("SKULL_ITEM");
+                playerSkullBlock = Material.valueOf("SKULL");
+            } catch (Exception e) {
+                OpenAudioLogger.info("Failed hook speakers attempt 1..");
+            }
+
+            if (playerSkullItem == null) {
+                OpenAudioLogger.info("Speakers failed to hook. Hooking to a block.");
+                playerSkullItem = Material.JUKEBOX;
+                playerSkullBlock = Material.JUKEBOX;
+            }
+        }
+    }
+
+    public Speaker registerSpeaker(Speaker speaker) {
+        if (speaker.getLocation() == null) {
+            OpenAudioLogger.warn("Registering speaker with nil location " + speaker.getSpeakerId());
+        }
+        speakerMap.put(speaker.getLocation(), speaker);
+        return speaker;
+    }
+
+    public Speaker getSpeaker(MappedLocation location) {
+        return speakerMap.get(location);
+    }
+
+    public SpeakerMedia getMedia(String source) {
+        if (speakerMediaMap.containsKey(source)) return speakerMediaMap.get(source);
+        SpeakerMedia speakerMedia = new SpeakerMedia(source);
+        speakerMediaMap.put(source, speakerMedia);
+        return speakerMedia;
+    }
+
+    public void unlistSpeaker(Loc location) {
+        if (!(location instanceof MappedLocation)) {
+            throw new IllegalArgumentException("Location is not a MappedLocation");
+        }
+        speakerMap.remove(location);
+    }
+}

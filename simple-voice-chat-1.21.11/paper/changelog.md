@@ -1,0 +1,1 @@
+- Improved voice chat group name validation
