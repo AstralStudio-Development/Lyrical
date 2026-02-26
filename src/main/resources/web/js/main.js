@@ -1,9 +1,9 @@
 // Main entry point
 
 async function init() {
-    const token = getTokenFromUrl();
+    const token = getAuthToken();
     if (!token) {
-        ui.showError('No token provided. Please use /lyrical in game to get a connection link.');
+        ui.showError('未提供令牌。请在游戏中使用 /lyrical 命令获取连接链接。');
         return;
     }
 
@@ -12,12 +12,24 @@ async function init() {
         const authResult = await connection.connect(token);
         state.uuid = authResult.uuid;
         state.name = authResult.name;
+        state.groupEnabled = authResult.groupEnabled !== false;
+
+        // 保存 session token 用于刷新后重连
+        if (authResult.sessionToken) {
+            saveSessionToken(authResult.sessionToken);
+            // 从 URL 中移除一次性 token，避免刷新时重复使用
+            if (getTokenFromUrl()) {
+                const url = new URL(window.location.href);
+                url.searchParams.delete('token');
+                window.history.replaceState({}, '', url.toString());
+            }
+        }
 
         // Initialize audio
         audioPlayer.init();
         const micStarted = await microphone.start();
         if (!micStarted) {
-            ui.showError('Failed to access microphone. Please allow microphone access and refresh.');
+            ui.showError('无法访问麦克风。请允许麦克风权限后刷新页面。');
             return;
         }
 
@@ -26,15 +38,15 @@ async function init() {
         connection.onBinaryMessage = handleBinaryMessage;
         
         connection.onClose = () => {
-            ui.setConnectionStatus('Disconnected');
+            ui.setConnectionStatus('已断开');
         };
 
         connection.onReconnecting = (attempt, max) => {
-            ui.setConnectionStatus(`Reconnecting (${attempt}/${max})...`);
+            ui.setConnectionStatus(`重连中 (${attempt}/${max})...`);
         };
 
         connection.onReconnected = () => {
-            ui.setConnectionStatus('Connected');
+            ui.setConnectionStatus('已连接');
             // Re-sync state after reconnection
             connection.send('player_state', { 
                 muted: state.muted, 
@@ -47,12 +59,33 @@ async function init() {
             connection.sendBinary(data);
         };
 
+        // Set up voice level callback for UI
+        microphone.onVoiceLevel = (rms, speaking) => {
+            updateVoiceLevel(rms, speaking);
+        };
+
         // Show main UI
         ui.showMain(state.name);
+        ui.setGroupEnabled(state.groupEnabled);
+        initSettings();
+        
+        // 显示编码模式
+        setTimeout(() => {
+            const codecStatus = document.getElementById('codec-status');
+            if (codecStatus) {
+                if (microphone.useOpus && microphone.opusEncoder) {
+                    codecStatus.textContent = '[Opus]';
+                } else {
+                    codecStatus.textContent = '[PCM]';
+                }
+            }
+        }, 500);
 
     } catch (error) {
         console.error('Connection error:', error);
-        ui.showError(error.message || 'Failed to connect to voice server.');
+        // 连接失败时清除 session token
+        clearSessionToken();
+        ui.showError(error.message || '无法连接到语音服务器。');
     }
 }
 
@@ -100,6 +133,9 @@ function handleMessage(message) {
     }
 }
 
+// Speaking timeout map for debouncing
+const speakingTimeouts = new Map();
+
 function handleBinaryMessage(buffer) {
     // Parse binary message: [16 bytes UUID] [8 bytes volume] [N bytes audio]
     const view = new DataView(buffer);
@@ -113,10 +149,42 @@ function handleBinaryMessage(buffer) {
     // Play audio
     audioPlayer.playAudio(senderUuid, audioData, volume, position);
 
-    // Update UI to show speaking
+    // Update UI to show speaking with debounce
     ui.setPlayerSpeaking(senderUuid, true);
-    setTimeout(() => ui.setPlayerSpeaking(senderUuid, false), 200);
+    
+    // Clear existing timeout for this player
+    const existingTimeout = speakingTimeouts.get(senderUuid);
+    if (existingTimeout) {
+        clearTimeout(existingTimeout);
+    }
+    
+    // Set new timeout
+    const timeout = setTimeout(() => {
+        ui.setPlayerSpeaking(senderUuid, false);
+        speakingTimeouts.delete(senderUuid);
+    }, 300);
+    speakingTimeouts.set(senderUuid, timeout);
 }
 
 // Start the app
 init();
+
+// Voice level UI update
+function updateVoiceLevel(rms, speaking) {
+    const fill = document.getElementById('voice-level-fill');
+    const text = document.getElementById('voice-level-text');
+    const marker = document.getElementById('voice-threshold-marker');
+    
+    // Convert RMS to percentage (0-100), capped at 0.1 RMS = 100%
+    const percent = Math.min(rms / 0.1 * 100, 100);
+    fill.style.width = percent + '%';
+    fill.classList.toggle('speaking', speaking);
+    
+    // Display RMS value
+    text.textContent = rms.toFixed(3);
+    
+    // Update threshold marker position
+    const threshold = microphone.settings.vadThreshold;
+    const markerPercent = Math.min(threshold / 0.1 * 100, 100);
+    marker.style.left = markerPercent + '%';
+}

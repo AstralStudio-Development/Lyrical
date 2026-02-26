@@ -49,6 +49,7 @@ public class WebSocketHandler extends SimpleChannelInboundHandler<WebSocketFrame
                 case "group_join" -> handleGroupJoin(ctx, data);
                 case "group_leave" -> handleGroupLeave(ctx);
                 case "group_list" -> handleGroupList(ctx);
+                case "ping" -> handlePing(ctx, data);
             }
         } catch (Exception e) {
             plugin.getLogger().warning("Failed to parse WebSocket message: " + e.getMessage());
@@ -58,8 +59,16 @@ public class WebSocketHandler extends SimpleChannelInboundHandler<WebSocketFrame
     private void handleAuth(ChannelHandlerContext ctx, JsonObject data) {
         String token = data.get("token").getAsString();
         
-        // 验证 Token
-        UUID playerUuid = plugin.getTokenManager().validateToken(token);
+        UUID playerUuid;
+        
+        // 检查是否是 session token
+        if (token.startsWith("session_")) {
+            playerUuid = plugin.getTokenManager().validateSessionToken(token);
+        } else {
+            // 普通一次性 token
+            playerUuid = plugin.getTokenManager().validateToken(token);
+        }
+        
         if (playerUuid == null) {
             sendJson(ctx, "auth_result", Map.of("success", false, "message", "Invalid token"));
             ctx.close();
@@ -68,16 +77,28 @@ public class WebSocketHandler extends SimpleChannelInboundHandler<WebSocketFrame
 
         String playerName = plugin.getTokenManager().getPlayerName(playerUuid);
         
+        // 检查是否已有连接，如果有则断开旧连接
+        ClientConnection existingConnection = plugin.getVoiceManager().getConnection(playerUuid);
+        if (existingConnection != null) {
+            existingConnection.getChannel().close();
+            plugin.getVoiceManager().removeConnection(playerUuid);
+        }
+        
         // 创建连接
         ClientConnection connection = new ClientConnection(playerUuid, playerName, ctx.channel());
         plugin.getVoiceManager().addConnection(connection);
         channelToPlayer.put(ctx.channel(), playerUuid);
 
+        // 生成新的 session token
+        String sessionToken = plugin.getTokenManager().generateSessionToken(playerUuid);
+
         // 发送认证成功
         sendJson(ctx, "auth_result", Map.of(
                 "success", true,
                 "uuid", playerUuid.toString(),
-                "name", playerName
+                "name", playerName,
+                "groupEnabled", plugin.getLyricalConfig().isGroupEnabled(),
+                "sessionToken", sessionToken
         ));
 
         // 通知其他玩家
@@ -95,7 +116,10 @@ public class WebSocketHandler extends SimpleChannelInboundHandler<WebSocketFrame
         if (connection == null) return;
 
         if (data.has("muted") && !data.get("muted").isJsonNull()) {
-            connection.getState().setMuted(data.get("muted").getAsBoolean());
+            boolean muted = data.get("muted").getAsBoolean();
+            connection.getState().setMuted(muted);
+            // 更新静音图标
+            plugin.getSpeakingIndicator().setMuted(playerUuid, muted);
         }
         if (data.has("deafened") && !data.get("deafened").isJsonNull()) {
             connection.getState().setDeafened(data.get("deafened").getAsBoolean());
@@ -178,6 +202,21 @@ public class WebSocketHandler extends SimpleChannelInboundHandler<WebSocketFrame
         sendJson(ctx, "group_list", Map.of("groups", groups));
     }
 
+    private void handlePing(ChannelHandlerContext ctx, JsonObject data) {
+        // 回复 pong，携带原始时间戳
+        long timestamp = data.has("timestamp") ? data.get("timestamp").getAsLong() : 0;
+        sendJson(ctx, "pong", Map.of("timestamp", timestamp));
+        
+        // 更新连接活跃时间
+        UUID playerUuid = channelToPlayer.get(ctx.channel());
+        if (playerUuid != null) {
+            ClientConnection connection = plugin.getVoiceManager().getConnection(playerUuid);
+            if (connection != null) {
+                connection.updateActivity();
+            }
+        }
+    }
+
     private void handleBinaryMessage(ChannelHandlerContext ctx, ByteBuf buf) {
         UUID senderUuid = channelToPlayer.get(ctx.channel());
         if (senderUuid == null) return;
@@ -186,6 +225,9 @@ public class WebSocketHandler extends SimpleChannelInboundHandler<WebSocketFrame
         if (sender == null || sender.getState().isMuted()) return;
 
         sender.updateActivity();
+        
+        // 标记玩家正在说话（显示喇叭图标）
+        plugin.getSpeakingIndicator().markSpeaking(senderUuid);
 
         // 读取音频数据
         byte[] audioData = new byte[buf.readableBytes()];
@@ -304,6 +346,9 @@ public class WebSocketHandler extends SimpleChannelInboundHandler<WebSocketFrame
             }
             
             plugin.getVoiceManager().removeConnection(playerUuid);
+            
+            // 清理说话/静音图标
+            plugin.getSpeakingIndicator().removePlayer(playerUuid);
 
             // 通知其他玩家
             for (ClientConnection conn : plugin.getVoiceManager().getConnections()) {

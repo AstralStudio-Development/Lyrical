@@ -10,6 +10,8 @@ public class LyricalConfig {
     // 服务器设置
     private int port;
     private String externalHost;
+    private int externalPort;
+    private boolean useHttps;
     private int tokenExpire;
 
     // 语音设置
@@ -18,6 +20,7 @@ public class LyricalConfig {
     private int positionUpdateInterval;
     private int sampleRate;
     private int bitrate;
+    private boolean showSpeakingIndicator;
 
     // 群组设置
     private boolean groupEnabled;
@@ -37,6 +40,8 @@ public class LyricalConfig {
         // 服务器设置
         this.port = config.getInt("server.port", 25566);
         this.externalHost = config.getString("server.external-host", "localhost");
+        this.externalPort = config.getInt("server.external-port", 0);
+        this.useHttps = config.getBoolean("server.use-https", false);
         this.tokenExpire = config.getInt("server.token-expire", 300);
 
         // 语音设置
@@ -45,6 +50,7 @@ public class LyricalConfig {
         this.positionUpdateInterval = config.getInt("voice.position-update-interval", 5);
         this.sampleRate = config.getInt("voice.sample-rate", 48000);
         this.bitrate = config.getInt("voice.bitrate", 64000);
+        this.showSpeakingIndicator = config.getBoolean("voice.show-speaking-indicator", true);
 
         // 群组设置
         this.groupEnabled = config.getBoolean("group.enabled", true);
@@ -58,6 +64,14 @@ public class LyricalConfig {
 
     public String getExternalHost() {
         return externalHost;
+    }
+
+    public int getExternalPort() {
+        return externalPort > 0 ? externalPort : port;
+    }
+
+    public boolean isUseHttps() {
+        return useHttps;
     }
 
     public int getTokenExpire() {
@@ -82,6 +96,10 @@ public class LyricalConfig {
 
     public int getBitrate() {
         return bitrate;
+    }
+
+    public boolean isShowSpeakingIndicator() {
+        return showSpeakingIndicator;
     }
 
     public boolean isGroupEnabled() {

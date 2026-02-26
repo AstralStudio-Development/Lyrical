@@ -3,74 +3,126 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Lyrical - Voice Chat</title>
+    <title>Lyrical - 语音聊天</title>
     <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
     <div id="app">
         <div id="connecting" class="screen">
             <div class="loader"></div>
-            <p>Connecting...</p>
+            <p>连接中...</p>
         </div>
 
         <div id="error" class="screen hidden">
-            <h2>Connection Error</h2>
+            <h2>连接错误</h2>
             <p id="error-message"></p>
-            <button onclick="location.reload()">Retry</button>
+            <button onclick="location.reload()">重试</button>
         </div>
 
         <div id="main" class="screen hidden">
-            <header>
-                <h1>Lyrical</h1>
-                <span id="player-name"></span>
-            </header>
+            <div id="main-content">
+                <!-- 左侧面板：用户信息 + 控制 + 设置 -->
+                <div id="left-panel">
+                    <!-- 用户信息 -->
+                    <div id="user-profile">
+                        <img id="user-avatar" src="" alt="头像">
+                        <div id="player-name"></div>
+                        <div id="connection-status">已连接</div>
+                    </div>
 
-            <div id="controls">
-                <button id="btn-mute" class="control-btn" title="Mute">
-                    <svg viewBox="0 0 24 24" width="24" height="24">
-                        <path id="mic-icon" d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm-1 1.93c-3.94-.49-7-3.85-7-7.93h2c0 3.31 2.69 6 6 6s6-2.69 6-6h2c0 4.08-3.06 7.44-7 7.93V20h4v2H8v-2h4v-4.07z"/>
-                    </svg>
-                </button>
-                <button id="btn-deafen" class="control-btn" title="Deafen">
-                    <svg viewBox="0 0 24 24" width="24" height="24">
-                        <path id="headphone-icon" d="M12 1c-4.97 0-9 4.03-9 9v7c0 1.66 1.34 3 3 3h3v-8H5v-2c0-3.87 3.13-7 7-7s7 3.13 7 7v2h-4v8h3c1.66 0 3-1.34 3-3v-7c0-4.97-4.03-9-9-9z"/>
-                    </svg>
-                </button>
-            </div>
+                    <!-- 控制按钮 -->
+                    <div id="controls">
+                        <div class="control-group">
+                            <button id="btn-mute" class="control-btn" title="静音麦克风">
+                                <svg class="icon-on" viewBox="0 0 24 24" width="20" height="20">
+                                    <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm-1 1.93c-3.94-.49-7-3.85-7-7.93h2c0 3.31 2.69 6 6 6s6-2.69 6-6h2c0 4.08-3.06 7.44-7 7.93V20h4v2H8v-2h4v-4.07z"/>
+                                </svg>
+                                <svg class="icon-off" viewBox="0 0 24 24" width="20" height="20">
+                                    <path d="M19 11h2c0 1.85-.63 3.55-1.68 4.9l-1.45-1.45C18.57 13.53 19 12.32 19 11zM15 10.6V5c0-1.66-1.34-3-3-3S9 3.34 9 5v.17l6 6V10.6zM4.27 3L3 4.27l6 6V11c0 1.66 1.34 3 3 3 .23 0 .44-.03.65-.08l1.66 1.66c-.71.33-1.5.52-2.31.52-2.76 0-5.3-2.1-5.3-5.1H5c0 3.41 2.72 6.23 6 6.72V20H8v2h8v-2h-3v-3.28c.91-.13 1.77-.45 2.55-.9l4.18 4.18L21 18.73 4.27 3z"/>
+                                </svg>
+                                <span>麦克风</span>
+                            </button>
+                            <div class="volume-slider">
+                                <input type="range" id="setting-gain" min="50" max="300" value="150" orient="vertical">
+                            </div>
+                        </div>
+                        <div class="control-group">
+                            <div class="volume-slider">
+                                <input type="range" id="setting-volume" min="0" max="100" value="100" orient="vertical">
+                            </div>
+                            <button id="btn-deafen" class="control-btn" title="关闭声音">
+                                <svg class="icon-on" viewBox="0 0 24 24" width="20" height="20">
+                                    <path d="M12 1c-4.97 0-9 4.03-9 9v7c0 1.66 1.34 3 3 3h3v-8H5v-2c0-3.87 3.13-7 7-7s7 3.13 7 7v2h-4v8h3c1.66 0 3-1.34 3-3v-7c0-4.97-4.03-9-9-9z"/>
+                                </svg>
+                                <svg class="icon-off" viewBox="0 0 24 24" width="20" height="20">
+                                    <path d="M4.34 2.93L2.93 4.34 7.29 8.7 7 9H3v6h4l5 5v-6.59l4.18 4.18c-.65.49-1.38.88-2.18 1.11v2.06c1.34-.3 2.57-.92 3.61-1.75l2.05 2.05 1.41-1.41L4.34 2.93zM19 12c0 .82-.15 1.61-.41 2.34l1.53 1.53c.56-1.17.88-2.48.88-3.87 0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zm-7-8l-1.88 1.88L12 7.76zm4.5 8c0-1.77-1.02-3.29-2.5-4.03v1.79l2.48 2.48c.01-.08.02-.16.02-.24z"/>
+                                </svg>
+                                <span>扬声器</span>
+                            </button>
+                        </div>
+                    </div>
 
-            <!-- Group Section -->
-            <div id="group-section">
-                <div id="group-info" class="hidden">
-                    <div class="group-header">
-                        <span id="group-name"></span>
-                        <button id="btn-leave-group" class="btn-small">Leave</button>
+                    <!-- 语音电平指示器 -->
+                    <div id="voice-level-container">
+                        <label>语音检测</label>
+                        <div id="voice-level-bar">
+                            <div id="voice-level-fill"></div>
+                            <div id="voice-threshold-marker"></div>
+                        </div>
+                        <span id="voice-level-text">--</span>
+                    </div>
+
+                    <!-- 设置 -->
+                    <div id="settings-panel">
+                        <div class="setting-group">
+                            <label>语音激活阈值</label>
+                            <div class="setting-row">
+                                <input type="range" id="setting-threshold" min="1" max="50" value="8">
+                                <span id="threshold-value">0.008</span>
+                            </div>
+                        </div>
+
+                        <button id="btn-reset-settings" class="btn-secondary btn-full">重置设置</button>
+                    </div>
+
+                    <!-- 群组操作 -->
+                    <div id="group-section">
+                        <div id="group-info" class="hidden">
+                            <div class="group-header">
+                                <span id="group-name"></span>
+                                <button id="btn-leave-group" class="btn-small">离开</button>
+                            </div>
+                        </div>
+                        <div id="group-actions">
+                            <button id="btn-create-group" class="btn-secondary">创建群组</button>
+                            <button id="btn-join-group" class="btn-secondary">加入群组</button>
+                        </div>
+                    </div>
+
+                    <!-- 底部状态 -->
+                    <div id="panel-footer">
+                        <span id="latency-display"></span>
                     </div>
                 </div>
-                <div id="group-actions">
-                    <button id="btn-create-group" class="btn-secondary">Create Group</button>
-                    <button id="btn-join-group" class="btn-secondary">Join Group</button>
+
+                <!-- 右侧：在线玩家 -->
+                <div id="right-panel">
+                    <div id="players">
+                        <ul id="player-list"></ul>
+                    </div>
                 </div>
-            </div>
-
-            <div id="players">
-                <h3>Online Players</h3>
-                <ul id="player-list"></ul>
-            </div>
-
-            <div id="status">
-                <span id="connection-status">Connected</span>
             </div>
         </div>
 
         <!-- Create Group Modal -->
         <div id="modal-create-group" class="modal hidden">
             <div class="modal-content">
-                <h3>Create Group</h3>
-                <input type="text" id="input-group-name" placeholder="Group name" maxlength="32">
-                <input type="password" id="input-group-password" placeholder="Password (optional)">
+                <h3>创建群组</h3>
+                <input type="text" id="input-group-name" placeholder="群组名称" maxlength="32">
+                <input type="password" id="input-group-password" placeholder="密码（可选）">
                 <div class="modal-buttons">
-                    <button id="btn-cancel-create" class="btn-secondary">Cancel</button>
-                    <button id="btn-confirm-create" class="btn-primary">Create</button>
+                    <button id="btn-cancel-create" class="btn-secondary">取消</button>
+                    <button id="btn-confirm-create" class="btn-primary">创建</button>
                 </div>
             </div>
         </div>
@@ -78,14 +130,14 @@
         <!-- Join Group Modal -->
         <div id="modal-join-group" class="modal hidden">
             <div class="modal-content">
-                <h3>Join Group</h3>
+                <h3>加入群组</h3>
                 <select id="select-group">
-                    <option value="">Select a group...</option>
+                    <option value="">选择群组...</option>
                 </select>
-                <input type="password" id="input-join-password" placeholder="Password (if required)">
+                <input type="password" id="input-join-password" placeholder="密码（如需要）">
                 <div class="modal-buttons">
-                    <button id="btn-cancel-join" class="btn-secondary">Cancel</button>
-                    <button id="btn-confirm-join" class="btn-primary">Join</button>
+                    <button id="btn-cancel-join" class="btn-secondary">取消</button>
+                    <button id="btn-confirm-join" class="btn-primary">加入</button>
                 </div>
             </div>
         </div>
@@ -93,6 +145,8 @@
 
     <script src="js/utils.js"></script>
     <script src="js/connection.js"></script>
+    <script src="js/audio/opus.js"></script>
+    <script src="js/audio/rnnoise.js"></script>
     <script src="js/audio/microphone.js"></script>
     <script src="js/audio/player.js"></script>
     <script src="js/state.js"></script>

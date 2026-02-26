@@ -3,7 +3,15 @@ server:
   # HTTP/WebSocket 端口
   port: 25566
   # 外部访问地址 (用于生成连接 URL)
+  # 如果使用内网穿透，填写穿透服务给你的域名，如 xxx.sakurafrp.com
   external-host: "localhost"
+  # 外部访问端口 (用于生成连接 URL)
+  # 如果使用内网穿透，填写穿透服务给你的远程端口
+  # 设为 0 或不填则使用 port 的值
+  external-port: 0
+  # 是否使用 HTTPS (用于生成连接 URL)
+  # 如果使用 SakuraFrp 的自动 HTTPS 功能，设为 true
+  use-https: false
   # Token 有效期 (秒)
   token-expire: 300
 
@@ -19,6 +27,8 @@ voice:
   sample-rate: 48000
   # Opus 比特率
   bitrate: 64000
+  # 是否在玩家名称旁显示说话/静音图标
+  show-speaking-indicator: true
 
 # 群组设置
 group:

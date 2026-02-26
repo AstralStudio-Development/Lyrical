@@ -6,6 +6,7 @@ import moe.illusory.lyrical.config.LyricalConfig;
 import moe.illusory.lyrical.listener.PlayerListener;
 import moe.illusory.lyrical.listener.PositionTracker;
 import moe.illusory.lyrical.network.NettyServer;
+import moe.illusory.lyrical.voice.SpeakingIndicator;
 import moe.illusory.lyrical.voice.VoiceManager;
 import org.bukkit.plugin.java.JavaPlugin;
 
@@ -16,6 +17,7 @@ public final class Lyrical extends JavaPlugin {
     private VoiceManager voiceManager;
     private NettyServer nettyServer;
     private PositionTracker positionTracker;
+    private SpeakingIndicator speakingIndicator;
 
     @Override
     public void onEnable() {
@@ -25,6 +27,10 @@ public final class Lyrical extends JavaPlugin {
         // 初始化管理器
         tokenManager = new TokenManager(this);
         voiceManager = new VoiceManager(this);
+        
+        // 初始化说话指示器
+        speakingIndicator = new SpeakingIndicator(this);
+        speakingIndicator.init();
 
         // 启动 Netty 服务器
         nettyServer = new NettyServer(this, lyricalConfig.getPort());
@@ -48,6 +54,11 @@ public final class Lyrical extends JavaPlugin {
 
     @Override
     public void onDisable() {
+        // 停止说话指示器
+        if (speakingIndicator != null) {
+            speakingIndicator.shutdown();
+        }
+
         // 停止位置追踪
         if (positionTracker != null) {
             positionTracker.stop();
@@ -76,5 +87,9 @@ public final class Lyrical extends JavaPlugin {
 
     public VoiceManager getVoiceManager() {
         return voiceManager;
+    }
+
+    public SpeakingIndicator getSpeakingIndicator() {
+        return speakingIndicator;
     }
 }

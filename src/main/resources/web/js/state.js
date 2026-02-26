@@ -7,6 +7,9 @@ const state = {
     muted: false,
     deafened: false,
 
+    // Group config
+    groupEnabled: true,
+
     // Group info
     groupId: null,
     groupName: null,
@@ -65,6 +68,12 @@ function toggleMute() {
     microphone.setMuted(state.muted);
     connection.send('player_state', { muted: state.muted });
     ui.updateControls();
+    
+    // 如果取消静音，恢复默认增益
+    if (!state.muted) {
+        document.getElementById('setting-gain').value = 150;
+        microphone.setGain(1.5);
+    }
 }
 
 function toggleDeafen() {
@@ -72,6 +81,12 @@ function toggleDeafen() {
     audioPlayer.setDeafened(state.deafened);
     connection.send('player_state', { deafened: state.deafened });
     ui.updateControls();
+    
+    // 如果取消静音，恢复默认音量
+    if (!state.deafened) {
+        document.getElementById('setting-volume').value = 100;
+        audioPlayer.setVolume(1.0);
+    }
 }
 
 // Group functions
