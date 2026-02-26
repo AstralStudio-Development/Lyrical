@@ -1,6 +1,8 @@
 # Lyrical
 
 基于浏览器的 Minecraft 语音聊天插件，无需安装客户端模组。
+功能实现参考 SimpleVoiceChat 模组与 OpenAudioMc 插件。
+代码由 Claude Code 编写
 
 ## 特性
 
@@ -17,7 +19,7 @@
 
 ## 安装
 
-1. 下载 [Releases](https://github.com/yourname/Lyrical/releases) 中的 jar 文件
+1. 自行构建 jar 文件
 2. 放入服务器 `plugins` 目录
 3. 重启服务器
 
